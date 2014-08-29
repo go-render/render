@@ -1,7 +1,6 @@
 package render
 
 import (
-	"bytes"
 	"encoding/json"
 	"encoding/xml"
 	"html/template"
@@ -21,8 +20,6 @@ type Options struct {
 	DefaultLayout          string
 	DefaultExtension       string
 	DefaultHTMLContentType string
-	JSONIndent             string
-	XMLIndent              string
 	DefaultCharset         string
 
 	Funcs template.FuncMap
@@ -53,26 +50,21 @@ const (
 	CharsetUTF8 = "UTF-8"
 
 	DefaultHTMLContentType = ContentTypeHTML + "; charset=" + CharsetUTF8
+	DefaultJSONContentType = ContentTypeJSON + "; charset=" + CharsetUTF8
+	DefaultXMLContentType  = ContentTypeXML + "; charset=" + CharsetUTF8
 )
 
 var (
-	layoutPattern  = regexp.MustCompile(`\{\{\s*extends\s+"((?:\.{1,2}/)*[^"]+)"\s*\}\}`)
-	partialPattern = regexp.MustCompile(`\{\{\s*template\s+"((?:\.{1,2}/)*_[^"]+)"(?:\s+\.)?\s*\}\}`)
+	layoutPattern = regexp.MustCompile(`\{\{\s*extends\s+"((?:\.{1,2}/)*[^"]+)"\s*\}\}`)
 
 	options = &Options{
 		RootDirectory:          "views",
 		DefaultLayout:          "_layout",
 		DefaultExtension:       ".html",
 		DefaultHTMLContentType: ContentTypeHTML,
-		JSONIndent:             "",
-		XMLIndent:              "",
 		DefaultCharset:         CharsetUTF8,
 
-		Funcs: template.FuncMap{
-			"extends": func(s string) string {
-				return ""
-			},
-		},
+		Funcs: template.FuncMap{},
 	}
 
 	tmplCache = TemplateCache{Map: TemplateMap{}, RWMutex: &sync.RWMutex{}}
@@ -80,13 +72,14 @@ var (
 
 func Init(o *Options) {
 
+	options.Funcs["extends"] = extends
+	options.Funcs["partial"] = partial
+
 	if o != nil {
 		trySetOption(o.RootDirectory, &options.RootDirectory)
 		trySetOption(o.DefaultLayout, &options.DefaultLayout)
 		trySetOption(o.DefaultExtension, &options.DefaultExtension)
 		trySetOption(o.DefaultCharset, &options.DefaultCharset)
-		trySetOption(o.JSONIndent, &options.JSONIndent)
-		trySetOption(o.XMLIndent, &options.XMLIndent)
 
 		for k, v := range o.Funcs {
 			options.Funcs[k] = v
@@ -101,9 +94,9 @@ func trySetOption(value string, option *string) {
 	}
 }
 
-func getTemplatesPaths(templatePath string) ([]string, map[string]string) {
+func getTemplatesPaths(templatePath string) []string {
 
-	if ext := path.Ext(templatePath); ext == "" {
+	if ext := filepath.Ext(templatePath); ext == "" {
 		templatePath += options.DefaultExtension
 	}
 
@@ -119,24 +112,22 @@ func getTemplatesPaths(templatePath string) ([]string, map[string]string) {
 		log.Fatal(err)
 	}
 
-	partialsPaths := getPartialsPaths(absPath, content)
-
 	layoutFile := getLayoutFile(content)
 
 	if layoutFile != nil {
 
 		layoutFilePath := filepath.Join(filepath.Dir(absPath), string(layoutFile))
 
-		if ext := path.Ext(layoutFilePath); ext == "" {
+		if ext := filepath.Ext(layoutFilePath); ext == "" {
 			layoutFilePath += options.DefaultExtension
 		}
 
-		lps, pps := getTemplatesPaths(layoutFilePath)
+		lps := getTemplatesPaths(layoutFilePath)
 
-		return append(lps, absPath), appendMaps(pps, partialsPaths)
+		return append(lps, absPath)
 	}
 
-	return []string{absPath}, partialsPaths
+	return []string{absPath}
 }
 
 func getLayoutFile(bs []byte) []byte {
@@ -150,48 +141,6 @@ func getLayoutFile(bs []byte) []byte {
 	return nil
 }
 
-func getPartialsPaths(templatePath string, bs []byte) map[string]string {
-
-	partialPaths := make(map[string]string)
-
-	matches := partialPattern.FindAllSubmatch(bs, -1)
-
-	for _, bss := range matches {
-
-		partialName := string(bss[1])
-		partialPath, err := filepath.Abs(filepath.Join(filepath.Dir(templatePath), partialName))
-
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		if ext := path.Ext(partialPath); ext == "" {
-			partialPath += options.DefaultExtension
-		}
-
-		partialPaths[partialName] = partialPath
-	}
-
-	return partialPaths
-}
-
-func appendMaps(m1 map[string]string, m2 map[string]string) map[string]string {
-
-	m := make(map[string]string)
-
-	mergeFunc := func(_m map[string]string) {
-
-		for k, v := range _m {
-			m[k] = v
-		}
-	}
-
-	mergeFunc(m1)
-	mergeFunc(m2)
-
-	return m
-}
-
 func HTML(w http.ResponseWriter, filepath string, model interface{}) {
 
 	if ct := w.Header().Get(ContentType); ct == "" {
@@ -199,15 +148,15 @@ func HTML(w http.ResponseWriter, filepath string, model interface{}) {
 		w.Header().Set(ContentType, ct)
 	}
 
-	if err := RenderHTML(w, filepath, model); err != nil {
+	if err := ExecuteHTML(w, filepath, model); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 }
 
-func RenderHTML(wr io.Writer, filepath string, model interface{}) error {
+func ExecuteHTML(wr io.Writer, fpath string, model interface{}) error {
 
-	tmplPath := path.Join(options.RootDirectory, filepath)
+	tmplPath := filepath.Join(options.RootDirectory, fpath)
 
 	var tmplVal *TemplateValue
 	var ok bool
@@ -218,7 +167,7 @@ func RenderHTML(wr io.Writer, filepath string, model interface{}) error {
 
 	if !ok {
 
-		templatesPaths, partialsPaths := getTemplatesPaths(tmplPath)
+		templatesPaths := getTemplatesPaths(tmplPath)
 
 		tmpl := template.New("root")
 
@@ -227,21 +176,6 @@ func RenderHTML(wr io.Writer, filepath string, model interface{}) error {
 		}
 
 		tmpl = template.Must(tmpl.ParseFiles(templatesPaths...))
-
-		for k, v := range partialsPaths {
-
-			bs, err := ioutil.ReadFile(v)
-
-			if err != nil {
-				return err
-			}
-
-			_, err = tmpl.New(k).Parse(string(bs))
-
-			if err != nil {
-				return err
-			}
-		}
 
 		tmplVal = &TemplateValue{
 			name:     path.Base(templatesPaths[0]),
@@ -255,13 +189,9 @@ func RenderHTML(wr io.Writer, filepath string, model interface{}) error {
 		}
 	}
 
-	buf := &bytes.Buffer{}
-
-	if err := tmplVal.template.ExecuteTemplate(buf, tmplVal.name, model); err != nil {
+	if err := tmplVal.template.ExecuteTemplate(wr, tmplVal.name, model); err != nil {
 		return err
 	}
-
-	io.Copy(wr, buf)
 
 	return nil
 }
@@ -269,52 +199,34 @@ func RenderHTML(wr io.Writer, filepath string, model interface{}) error {
 func JSON(w http.ResponseWriter, model interface{}) {
 
 	if ct := w.Header().Get(ContentType); ct == "" {
-		ct = ContentTypeJSON + "; charset=" + options.DefaultCharset
-		w.Header().Set(ContentType, ct)
+		w.Header().Set(ContentType, DefaultJSONContentType)
 	}
 
-	buf, err := MarshalJSON(model)
-
-	if err != nil {
+	if err := EncodeJSON(w, model); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	w.Write(buf)
 }
 
-func MarshalJSON(model interface{}) ([]byte, error) {
+func EncodeJSON(w io.Writer, model interface{}) error {
 
-	if options.JSONIndent != "" {
-		return json.MarshalIndent(model, "", options.JSONIndent)
-	}
-
-	return json.Marshal(model)
+	return json.NewEncoder(w).Encode(model)
 }
 
 func XML(w http.ResponseWriter, model interface{}) {
 
 	if ct := w.Header().Get(ContentType); ct == "" {
-		ct = ContentTypeXML + "; charset=" + options.DefaultCharset
-		w.Header().Set(ContentType, ct)
+		w.Header().Set(ContentType, DefaultXMLContentType)
 	}
 
-	buf, err := MarshalXML(model)
-
-	if err != nil {
+	if err := EncodeXML(w, model); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	w.Write(buf)
 }
 
-func MarshalXML(model interface{}) ([]byte, error) {
+func EncodeXML(w io.Writer, model interface{}) error {
 
-	if options.XMLIndent != "" {
-		return xml.MarshalIndent(model, "", options.XMLIndent)
-	}
-
-	return xml.Marshal(model)
+	return xml.NewEncoder(w).Encode(model)
 }
 
