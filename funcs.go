@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"html/template"
 	"path/filepath"
+	"reflect"
 )
 
 func extends(s string) string {
@@ -14,13 +15,12 @@ func extends(s string) string {
 func partial(path string, model interface{}) (template.HTML, error) {
 
 	var tmplVal *TemplateValue
-	var ok bool
 
-	tmplCache.RLock()
-	tmplVal, ok = tmplCache.Map[path]
-	tmplCache.RUnlock()
+	if options.UseCache {
+		tmplVal = getTemplateFromCache(path)
+	}
 
-	if !ok {
+	if tmplVal == nil {
 
 		tmplPath, err := filepath.Abs(filepath.Join(options.RootDirectory, path))
 
@@ -32,17 +32,19 @@ func partial(path string, model interface{}) (template.HTML, error) {
 			tmplPath += options.DefaultExtension
 		}
 
-		tmpl := template.Must(template.New(tmplPath).Funcs(options.Funcs).ParseFiles(tmplPath))
+		tmpl, err := template.New(tmplPath).Funcs(options.Funcs).ParseFiles(tmplPath)
+
+		if err != nil {
+			return template.HTML(""), err
+		}
 
 		tmplVal = &TemplateValue{
 			name:     filepath.Base(tmplPath),
 			template: tmpl,
 		}
 
-		if _, ok = tmplCache.Map[tmplPath]; !ok {
-			tmplCache.Lock()
-			tmplCache.Map[path] = tmplVal
-			tmplCache.Unlock()
+		if options.UseCache {
+			cacheTemplate(tmplPath, tmplVal)
 		}
 	}
 
@@ -53,5 +55,49 @@ func partial(path string, model interface{}) (template.HTML, error) {
 	}
 
 	return template.HTML(string(buf.Bytes())), nil
+}
+
+func partials(path string, col interface{}) (template.HTML, error) {
+
+	var html template.HTML
+
+	s := reflect.ValueOf(col)
+
+	switch s.Type().Kind() {
+
+	case reflect.Slice, reflect.Array:
+
+		for i := 0; i < s.Len(); i++ {
+
+			v := s.Index(i).Interface()
+			h, err := partial(path, v)
+
+			if err != nil {
+				return template.HTML(""), err
+			}
+
+			html += h
+		}
+
+	case reflect.Map:
+
+		kv := struct{ Key, Value interface{} }{}
+
+		for _, k := range s.MapKeys() {
+
+			kv.Key = k.Interface()
+			kv.Value = s.MapIndex(k).Interface()
+
+			h, err := partial(path, kv)
+
+			if err != nil {
+				return template.HTML(""), err
+			}
+
+			html += h
+		}
+	}
+
+	return html, nil
 }
 

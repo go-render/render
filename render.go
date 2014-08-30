@@ -23,6 +23,8 @@ type Options struct {
 	DefaultCharset         string
 
 	Funcs template.FuncMap
+
+	UseCache bool
 }
 
 type TemplateValue struct {
@@ -72,19 +74,22 @@ var (
 
 func Init(o *Options) {
 
-	options.Funcs["extends"] = extends
-	options.Funcs["partial"] = partial
-
 	if o != nil {
 		trySetOption(o.RootDirectory, &options.RootDirectory)
 		trySetOption(o.DefaultLayout, &options.DefaultLayout)
 		trySetOption(o.DefaultExtension, &options.DefaultExtension)
 		trySetOption(o.DefaultCharset, &options.DefaultCharset)
 
+		options.UseCache = o.UseCache
+
 		for k, v := range o.Funcs {
 			options.Funcs[k] = v
 		}
 	}
+
+	options.Funcs["extends"] = extends
+	options.Funcs["partial"] = partial
+	options.Funcs["partials"] = partials
 }
 
 func trySetOption(value string, option *string) {
@@ -92,6 +97,26 @@ func trySetOption(value string, option *string) {
 	if s := strings.TrimSpace(value); s > "" {
 		*option = s
 	}
+}
+
+func getTemplateFromCache(tmplPath string) *TemplateValue {
+
+	var tmplVal *TemplateValue
+
+	tmplCache.RLock()
+	defer tmplCache.RUnlock()
+
+	tmplVal, _ = tmplCache.Map[tmplPath]
+
+	return tmplVal
+}
+
+func cacheTemplate(tmplPath string, tmplVal *TemplateValue) {
+
+	tmplCache.Lock()
+	defer tmplCache.Unlock()
+
+	tmplCache.Map[tmplPath] = tmplVal
 }
 
 func getTemplatesPaths(templatePath string) []string {
@@ -116,7 +141,7 @@ func getTemplatesPaths(templatePath string) []string {
 
 	if layoutFile != nil {
 
-		layoutFilePath := filepath.Join(filepath.Dir(absPath), string(layoutFile))
+		layoutFilePath := filepath.Join(options.RootDirectory, string(layoutFile))
 
 		if ext := filepath.Ext(layoutFilePath); ext == "" {
 			layoutFilePath += options.DefaultExtension
@@ -159,13 +184,12 @@ func ExecuteHTML(wr io.Writer, fpath string, model interface{}) error {
 	tmplPath := filepath.Join(options.RootDirectory, fpath)
 
 	var tmplVal *TemplateValue
-	var ok bool
 
-	tmplCache.RLock()
-	tmplVal, ok = tmplCache.Map[tmplPath]
-	tmplCache.RUnlock()
+	if options.UseCache {
+		tmplVal = getTemplateFromCache(tmplPath)
+	}
 
-	if !ok {
+	if tmplVal == nil {
 
 		templatesPaths := getTemplatesPaths(tmplPath)
 
@@ -175,17 +199,19 @@ func ExecuteHTML(wr io.Writer, fpath string, model interface{}) error {
 			tmpl = tmpl.Funcs(options.Funcs)
 		}
 
-		tmpl = template.Must(tmpl.ParseFiles(templatesPaths...))
+		tmpl, err := tmpl.ParseFiles(templatesPaths...)
+
+		if err != nil {
+			return err
+		}
 
 		tmplVal = &TemplateValue{
 			name:     path.Base(templatesPaths[0]),
 			template: tmpl,
 		}
 
-		if _, ok = tmplCache.Map[tmplPath]; !ok {
-			tmplCache.Lock()
-			tmplCache.Map[tmplPath] = tmplVal
-			tmplCache.Unlock()
+		if options.UseCache {
+			cacheTemplate(tmplPath, tmplVal)
 		}
 	}
 
