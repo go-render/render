@@ -42,7 +42,7 @@ type TemplateCache struct {
 const (
 	ContentType = "Content-Type"
 
-	ContentTypeTEXT   = "text/plain"
+	ContentTypeText   = "text/plain"
 	ContentTypeHTML   = "text/html"
 	ContentTypeXHTML  = "application/xhtml+xml"
 	ContentTypeXML    = "text/xml"
@@ -51,6 +51,7 @@ const (
 
 	CharsetUTF8 = "UTF-8"
 
+	DefaultTextContentType = ContentTypeText + "; charset=" + CharsetUTF8
 	DefaultHTMLContentType = ContentTypeHTML + "; charset=" + CharsetUTF8
 	DefaultJSONContentType = ContentTypeJSON + "; charset=" + CharsetUTF8
 	DefaultXMLContentType  = ContentTypeXML + "; charset=" + CharsetUTF8
@@ -166,14 +167,26 @@ func getLayoutFile(bs []byte) []byte {
 	return nil
 }
 
-func HTML(w http.ResponseWriter, filepath string, model interface{}) {
+func Nothing(w http.ResponseWriter, code int) {
 
-	if ct := w.Header().Get(ContentType); ct == "" {
-		ct = options.DefaultHTMLContentType + "; charset=" + options.DefaultCharset
-		w.Header().Set(ContentType, ct)
-	}
+	w.WriteHeader(code)
 
-	if err := ExecuteHTML(w, filepath, model); err != nil {
+	w.Write(nil)
+}
+
+func Plain(w http.ResponseWriter, s string) {
+
+	w.Header().Set(ContentType, DefaultTextContentType)
+
+	w.Write([]byte(s))
+}
+
+func HTML(w http.ResponseWriter, fpath string, model interface{}) {
+
+	ct := options.DefaultHTMLContentType + "; charset=" + options.DefaultCharset
+	w.Header().Set(ContentType, ct)
+
+	if err := ExecuteHTML(w, fpath, model); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -224,9 +237,7 @@ func ExecuteHTML(wr io.Writer, fpath string, model interface{}) error {
 
 func JSON(w http.ResponseWriter, model interface{}) {
 
-	if ct := w.Header().Get(ContentType); ct == "" {
-		w.Header().Set(ContentType, DefaultJSONContentType)
-	}
+	w.Header().Set(ContentType, DefaultJSONContentType)
 
 	if err := EncodeJSON(w, model); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -241,9 +252,7 @@ func EncodeJSON(w io.Writer, model interface{}) error {
 
 func XML(w http.ResponseWriter, model interface{}) {
 
-	if ct := w.Header().Get(ContentType); ct == "" {
-		w.Header().Set(ContentType, DefaultXMLContentType)
-	}
+	w.Header().Set(ContentType, DefaultXMLContentType)
 
 	if err := EncodeXML(w, model); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -254,5 +263,12 @@ func XML(w http.ResponseWriter, model interface{}) {
 func EncodeXML(w io.Writer, model interface{}) error {
 
 	return xml.NewEncoder(w).Encode(model)
+}
+
+func File(w http.ResponseWriter, r *http.Request, fpath string) {
+
+	w.Header().Set(ContentType, ContentTypeBinary)
+
+	http.ServeFile(w, r, fpath)
 }
 
