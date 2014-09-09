@@ -89,8 +89,11 @@ func Init(o *Options) {
 	}
 
 	options.Funcs["extends"] = extends
-	options.Funcs["partial"] = partial
-	options.Funcs["partials"] = partials
+	options.Funcs["render"] = render
+	options.Funcs["renderEach"] = renderEach
+	options.Funcs["formatTime"] = formatTime
+	options.Funcs["formatFloat"] = formatFloat
+	options.Funcs["formatInt"] = formatInt
 }
 
 func trySetOption(value string, option *string) {

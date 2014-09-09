@@ -5,6 +5,8 @@ import (
 	"html/template"
 	"path/filepath"
 	"reflect"
+	"time" 
+	"strconv"
 )
 
 func extends(s string) string {
@@ -12,7 +14,7 @@ func extends(s string) string {
 	return ""
 }
 
-func partial(path string, model interface{}) (template.HTML, error) {
+func render(path string, model interface{}) (template.HTML, error) {
 
 	var tmplVal *TemplateValue
 
@@ -57,7 +59,7 @@ func partial(path string, model interface{}) (template.HTML, error) {
 	return template.HTML(string(buf.Bytes())), nil
 }
 
-func partials(path string, col interface{}) (template.HTML, error) {
+func renderEach(path string, col interface{}) (template.HTML, error) {
 
 	var html template.HTML
 
@@ -70,7 +72,7 @@ func partials(path string, col interface{}) (template.HTML, error) {
 		for i := 0; i < s.Len(); i++ {
 
 			v := s.Index(i).Interface()
-			h, err := partial(path, v)
+			h, err := render(path, v)
 
 			if err != nil {
 				return template.HTML(""), err
@@ -88,7 +90,7 @@ func partials(path string, col interface{}) (template.HTML, error) {
 			kv.Key = k.Interface()
 			kv.Value = s.MapIndex(k).Interface()
 
-			h, err := partial(path, kv)
+			h, err := render(path, kv)
 
 			if err != nil {
 				return template.HTML(""), err
@@ -99,5 +101,19 @@ func partials(path string, col interface{}) (template.HTML, error) {
 	}
 
 	return html, nil
+}
+
+func formatTime(t time.Time, layout string) string {
+	return t.Format(layout)
+}
+
+func formatFloat(f float64, prec int) string {
+
+    return strconv.FormatFloat(f, 'f', prec, 64)
+}
+
+func formatInt(i int64, base int) string {
+
+    return strconv.FormatInt(i, base)
 }
 
