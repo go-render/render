@@ -8,9 +8,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 )
 
-type test_model struct {
+type testModel struct {
 	FieldOne string
 	FieldTwo int
 }
@@ -26,15 +27,15 @@ func TestInit(t *testing.T) {
 	Init(opts)
 
 	if options.RootDirectory != opts.RootDirectory {
-		t.Fatalf("RootDirectory incorrect. Expected %s. Actual %s", opts.RootDirectory, options.RootDirectory)
+		t.Fatalf("RootDirectory incorrect. Expected %q. Actual %q", opts.RootDirectory, options.RootDirectory)
 	}
 
 	if options.DefaultLayout != opts.DefaultLayout {
-		t.Fatalf("DefaultLayout incorrect. Expected %s. Actual %s", opts.DefaultLayout, options.DefaultLayout)
+		t.Fatalf("DefaultLayout incorrect. Expected %q. Actual %q", opts.DefaultLayout, options.DefaultLayout)
 	}
 
 	if options.DefaultExtension != opts.DefaultExtension {
-		t.Fatalf("DefaultExtension incorrect. Expected %s. Actual %s", opts.DefaultExtension, options.DefaultExtension)
+		t.Fatalf("DefaultExtension incorrect. Expected %q. Actual %q", opts.DefaultExtension, options.DefaultExtension)
 	}
 }
 
@@ -87,13 +88,81 @@ func TestTextPlainResponse(t *testing.T) {
 	}
 }
 
+func TestExecuteHTML(t *testing.T) {
+
+	opts := &Options{
+		RootDirectory:    ".",
+		DefaultExtension: ".html",
+	}
+
+	Init(opts)
+
+	buffer := &bytes.Buffer{}
+
+	m := testModel{
+		FieldOne: "Title",
+		FieldTwo: 2,
+	}
+
+	err := ExecuteHTML(buffer, "view_test", m)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected, _ := ioutil.ReadFile("view_result_test.html")
+	expectedBody := string(expected)
+
+	actual := buffer.Bytes()
+	actualBody := string(actual)
+
+	if expectedBody != actualBody {
+		t.Fatalf("Expected %q. Actual %q.", expectedBody, actualBody)
+	}
+}
+
+func TestHTMLResponse(t *testing.T) {
+
+	opts := &Options{
+		RootDirectory:    ".",
+		DefaultExtension: ".html",
+	}
+
+	Init(opts)
+
+	m := testModel{
+		FieldOne: "Title",
+		FieldTwo: 2,
+	}
+
+	w := httptest.NewRecorder()
+
+	HTML(w, "view_test", m)
+
+	expected, _ := ioutil.ReadFile("view_result_test.html")
+	expectedBody := string(expected)
+
+	expectedContentType := DefaultHTMLContentType
+
+	actualBody := w.Body.String()
+	actualContentType := w.Header().Get(ContentType)
+
+	if expectedBody != actualBody {
+		t.Fatalf("Bodies don't match'. Expected %q. Actual %q", expectedBody, actualBody)
+	}
+
+	if expectedContentType != actualContentType {
+		t.Fatalf("Content types don't match'. Expected %q. Actual %q", expectedContentType, actualContentType)
+	}
+}
+
 func TestEncodeXML(t *testing.T) {
 
 	w := &bytes.Buffer{}
 
-	expected := "<test_model><FieldOne>fieldOne</FieldOne><FieldTwo>222</FieldTwo></test_model>"
+	expected := "<testModel><FieldOne>fieldOne</FieldOne><FieldTwo>222</FieldTwo></testModel>"
 
-	var m = test_model{
+	var m = testModel{
 		FieldOne: "fieldOne",
 		FieldTwo: 222,
 	}
@@ -111,10 +180,10 @@ func TestXMLResponse(t *testing.T) {
 
 	w := httptest.NewRecorder()
 
-	expectedBody := "<test_model><FieldOne>fieldOne</FieldOne><FieldTwo>2</FieldTwo></test_model>"
+	expectedBody := "<testModel><FieldOne>fieldOne</FieldOne><FieldTwo>2</FieldTwo></testModel>"
 	expectedContentType := DefaultXMLContentType
 
-	var m = test_model{
+	var m = testModel{
 		FieldOne: "fieldOne",
 		FieldTwo: 2,
 	}
@@ -139,7 +208,7 @@ func TestEncodeJSON(t *testing.T) {
 
 	expected := "{\"FieldOne\":\"fieldOne1\",\"FieldTwo\":2}\n"
 
-	var m = test_model{
+	var m = testModel{
 		FieldOne: "fieldOne1",
 		FieldTwo: 2,
 	}
@@ -160,7 +229,7 @@ func TestJSONResponse(t *testing.T) {
 	expectedBody := "{\"FieldOne\":\"fieldOne1111\",\"FieldTwo\":22222}\n"
 	expectedContentType := DefaultJSONContentType
 
-	var m = test_model{
+	var m = testModel{
 		FieldOne: "fieldOne1111",
 		FieldTwo: 22222,
 	}
@@ -214,6 +283,44 @@ func TestFile(t *testing.T) {
 
 	if expectedContentType != actualContentType {
 		t.Fatalf("Content types don't match'. Expected %q. Actual %q", expectedContentType, actualContentType)
+	}
+}
+
+func TestFormatTime(t *testing.T) {
+
+	tm := time.Date(2014, time.September, 9, 22, 25, 17, 45, time.Local)
+
+	layout := "02 January 2006 15:04"
+
+	expected := "09 September 2014 22:25"
+	actual := formatTime(tm, layout)
+
+	if expected != actual {
+		t.Fatalf("Expected '%s'. Actual '%s'", expected, actual)
+	}
+}
+
+func TestFormatFloat(t *testing.T) {
+
+	f := 1254.35987
+
+	expected := "1254.36"
+	actual := formatFloat(f, 2)
+
+	if expected != actual {
+		t.Fatalf("Expected '%s'. Actual '%s'", expected, actual)
+	}
+}
+
+func TestFormatInt(t *testing.T) {
+
+	var i int64 = 987654
+
+	expected := "11110001001000000110"
+	actual := formatInt(i, 2)
+
+	if expected != actual {
+		t.Fatalf("Expected '%s'. Actual '%s'", expected, actual)
 	}
 }
 
