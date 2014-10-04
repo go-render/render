@@ -6,7 +6,6 @@ import (
 	"html/template"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"path"
 	"path/filepath"
@@ -123,7 +122,7 @@ func cacheTemplate(tmplPath string, tmplVal *TemplateValue) {
 	tmplCache.Map[tmplPath] = tmplVal
 }
 
-func getTemplatesPaths(templatePath string) []string {
+func getTemplatesPaths(templatePath string) ([]string, error) {
 
 	if ext := filepath.Ext(templatePath); ext == "" {
 		templatePath += options.DefaultExtension
@@ -132,13 +131,13 @@ func getTemplatesPaths(templatePath string) []string {
 	absPath, err := filepath.Abs(templatePath)
 
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
 	content, err := ioutil.ReadFile(absPath)
 
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
 	layoutFile := getLayoutFile(content)
@@ -151,12 +150,16 @@ func getTemplatesPaths(templatePath string) []string {
 			layoutFilePath += options.DefaultExtension
 		}
 
-		lps := getTemplatesPaths(layoutFilePath)
+		lps, err := getTemplatesPaths(layoutFilePath)
 
-		return append(lps, absPath)
+		if err != nil {
+			return nil, err
+		}
+
+		return append(lps, absPath), nil
 	}
 
-	return []string{absPath}
+	return []string{absPath}, nil
 }
 
 func getLayoutFile(bs []byte) []byte {
@@ -207,7 +210,11 @@ func ExecuteHTML(wr io.Writer, fpath string, model interface{}) error {
 
 	if tmplVal == nil {
 
-		templatesPaths := getTemplatesPaths(tmplPath)
+		templatesPaths, err := getTemplatesPaths(tmplPath)
+		
+		if err != nil {
+			return err
+		}
 
 		tmpl := template.New("root")
 
@@ -215,7 +222,7 @@ func ExecuteHTML(wr io.Writer, fpath string, model interface{}) error {
 			tmpl = tmpl.Funcs(options.Funcs)
 		}
 
-		tmpl, err := tmpl.ParseFiles(templatesPaths...)
+		tmpl, err = tmpl.ParseFiles(templatesPaths...)
 
 		if err != nil {
 			return err

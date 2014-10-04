@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -153,6 +154,110 @@ func TestHTMLResponse(t *testing.T) {
 
 	if expectedContentType != actualContentType {
 		t.Fatalf("Content types don't match'. Expected %q. Actual %q", expectedContentType, actualContentType)
+	}
+}
+
+func TestHTMLResponseWithCaching(t *testing.T) {
+
+	opts := &Options{
+		RootDirectory:    ".",
+		DefaultExtension: ".html",
+		UseCache: true,
+	}
+
+	Init(opts)
+
+	m := testModel{
+		FieldOne: "Title",
+		FieldTwo: 2,
+	}
+
+	w := httptest.NewRecorder()
+
+	HTML(w, "view_test", m)
+
+	expected, _ := ioutil.ReadFile("view_result_test.html")
+	expectedBody := string(expected)
+
+	expectedContentType := DefaultHTMLContentType
+
+	actualBody := w.Body.String()
+	actualContentType := w.Header().Get(ContentType)
+
+	if expectedBody != actualBody {
+		t.Fatalf("Bodies don't match'. Expected %q. Actual %q", expectedBody, actualBody)
+	}
+
+	if expectedContentType != actualContentType {
+		t.Fatalf("Content types don't match'. Expected %q. Actual %q", expectedContentType, actualContentType)
+	}
+}
+
+func TestUnknownViewHTMLResponse(t *testing.T) {
+
+	opts := &Options{
+		RootDirectory:    ".",
+		DefaultExtension: ".html",
+	}
+
+	Init(opts)
+
+	m := testModel{
+		FieldOne: "Title",
+		FieldTwo: 2,
+	}
+
+	w := httptest.NewRecorder()
+	
+	view_unknown := "view_unknown"
+
+	HTML(w, view_unknown, m)
+
+	expectedCode := http.StatusInternalServerError
+	actualCode := w.Code
+
+	if expectedCode != actualCode {
+		t.Fatalf("Expected status %d. Actual Status %d", expectedCode, actualCode)
+	}
+
+	expectedBodyEnd := fmt.Sprintf("/%s%s: no such file or directory\n", view_unknown, opts.DefaultExtension)
+	actualBody := w.Body.String()
+
+	if !strings.HasSuffix(actualBody, expectedBodyEnd) {
+		t.Fatalf("Bodies don't match. Expected body end %q. Actual body %q", expectedBodyEnd, actualBody)
+	}
+}
+
+func TestExecuteHTMLChildLayout(t *testing.T) {
+
+	opts := &Options{
+		RootDirectory:    ".",
+		DefaultExtension: ".html",
+	}
+
+	Init(opts)
+
+	buffer := &bytes.Buffer{}
+
+	m := testModel{
+		FieldOne: "Title",
+		FieldTwo: 2,
+	}
+
+	err := ExecuteHTML(buffer, "view_child_test", m)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected, _ := ioutil.ReadFile("view_result_test.html")
+	expectedBody := string(expected)
+
+	actual := buffer.Bytes()
+	actualBody := string(actual)
+
+	if expectedBody != actualBody {
+		t.Fatalf("Expected %q. Actual %q.", expectedBody, actualBody)
 	}
 }
 
